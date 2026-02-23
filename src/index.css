@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #004FFE;
+  --font-sans: Pretendard, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply font-sans antialiased bg-[#F5F8FC];
+  }
+}
+
+@keyframes flashRed {
+  0% { background-color: rgba(229, 57, 53, 0.2); }
+  100% { background-color: transparent; }
+}
+@keyframes flashBlue {
+  0% { background-color: rgba(30, 136, 229, 0.2); }
+  100% { background-color: transparent; }
+}
+
+.animate-flash-red {
+  animation: flashRed 0.6s ease-out;
+}
+.animate-flash-blue {
+  animation: flashBlue 0.6s ease-out;
+}
+
+.chart-transition {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}

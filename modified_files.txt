@@ -1,0 +1,30 @@
+[피드백 반영 수정 사항 리포트]
+
+1. 수정 위치: c:\Users\EL06\ms_project\ai-school-project-3\20260211_EasyStock\src\components\StockDetail.tsx
+   - 차트(Chart): 
+     * 백엔드에서 단일 가격(price)만 제공하더라도 캔들이 형성되도록 가상의 OHLC 매핑 로직 추가.
+     * 인접 데이터 포인트를 참조하여 시가(open)를 설정하고 랜덤 변동폭을 주어 고가/저가(high/low) 생성.
+   - 뉴스(News):
+     * 모든 종목에서 동일한 뉴스가 나오던 문제를 수정.
+     * 현재 종목의 이름(`stock.name`)이 카테고리나 제목에 포함된 뉴스만 필터링하여 노출하도록 변경.
+     * 관련 뉴스가 없을 경우 안내 메시지 출력.
+
+3. 수정 위치: c:\Users\EL06\ms_project\ai-school-project-3\20260211_EasyStock\src\components\AssetsContent.tsx
+   - 나의 자산 현황:
+     * 하드코딩된 자산 데이터(주식 65%, 현금 35%)를 `App.tsx`의 실시간 상태와 연동.
+     * 보유 주식 평가금과 현금 잔고를 바탕으로 자산 비중과 도넛 그래프를 동적으로 계산 및 렌더링.
+
+4. 수정 위치: c:\Users\EL06\ms_project\ai-school-project-3\20260211_EasyStock\src\App.tsx
+   - `AssetsContent` 컴포넌트 데이터 전달 및 전체 레이아웃 구성 보완.
+   - 레이아웃이 화면 전체를 차지하도록 수정하여 웹/모바일 잘림 현상 해결.
+
+5. 수정 위치: c:\Users\EL06\ms_project\ai-school-project-3\20260211_EasyStock\src\components\ChatbotContent.tsx
+   - AI 파트너 선택 화면 디자인 개선 (제공된 이미지 5 매칭).
+   - 카드 레이아웃, 헤더 버튼, 선택 아이콘 스타일 수정.
+
+6. 수정 위치: c:\Users\EL06\ms_project\ai-school-project-3\20260211_EasyStock\src\components\SettingsContent.tsx
+   - 환경 설정 페이지 디자인 개선 (제공된 이미지 6 매칭).
+   - 프로필 카드, 알림 아이템 및 토글 스위치 UI 고도화.
+
+[백엔드 팀 참고 사항]
+- 현재 프론트엔드에서 임시로 가상 캔들을 만들고 있습니다. 추후 API에서 `open`, `high`, `low`, `close` 데이터를 직접 제공해 주시면 가장 정확한 차트 구현이 가능합니다.
