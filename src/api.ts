@@ -1,7 +1,7 @@
 // src/api.ts — 백엔드 연동 통합 API 모듈
 // 기존 services/api.ts와 병행 사용 (백엔드 팀의 최신 API 명세 반영)
 
-const BASE_URL = "http://localhost:8000"; 
+const BASE_URL = "to-the-mars-ekcvdadwhmhjfsee.koreasouth-01.azurewebsites.net"; 
 
 // ------------------------------------------------------------
 // 1. 타입 정의 (프론트엔드에서 쓸 데이터 모양)
