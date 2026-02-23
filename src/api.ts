@@ -1,10 +1,10 @@
 // src/api.ts — 백엔드 연동 통합 API 모듈
 // 기존 services/api.ts와 병행 사용 (백엔드 팀의 최신 API 명세 반영)
 
-const BASE_URL = "https://to-the-mars-ekcvdadwhmhjfsee.koreasouth-01.azurewebsites.net"; 
+const BASE_URL = import.meta.env.VITE_API_URL;
 
 // ------------------------------------------------------------
-// 1. 타입 정의 (프론트엔드에서 쓸 데이터 모양)
+// 1. 타입 정의 (프론트엔드에서 쓸 데이터 모양) - 기존 코드 유지
 // ------------------------------------------------------------
 export interface CompanyData {
   ticker: string;
@@ -13,7 +13,7 @@ export interface CompanyData {
   current_price: number;
   change_amount: number;
   change_rate: number;
-  volume?: number; // 🔥 [추가] 거래량 순 정렬을 위한 필드
+  volume?: number; 
 }
 
 export interface ChartData {
@@ -21,7 +21,6 @@ export interface ChartData {
   price: number;
 }
 
-// 🔥 [추가/통합] NewsContent.tsx에서 사용하는 뉴스 타입
 export interface News {
   id: number;
   ticker: string;
@@ -77,7 +76,6 @@ export interface UserStatusResponse {
   sim_time: string;
 }
 
-// 🔥 [추가] 솔루션 탭에서 사용할 데이터 타입
 export interface SolutionItem {
   id: number;
   type: string;
@@ -88,7 +86,7 @@ export interface SolutionItem {
 }
 
 // ------------------------------------------------------------
-// 2. API 호출 함수들
+// 2. API 호출 함수들 - 오류 수정 반영
 // ------------------------------------------------------------
 
 // ① 유저 초기화
@@ -105,11 +103,11 @@ export const initUser = async (username: string) => {
   }
 };
 
-// ② 실시간 유저 상태 조회
+// ② 실시간 유저 상태 조회 (🔥 한글 헤더 인코딩 적용)
 export const fetchUserStatus = async (username: string): Promise<UserStatusResponse | null> => {
   try {
     const response = await fetch(`${BASE_URL}/api/user/status`, {
-      headers: { 'X-User-ID': `USER_${username}` },
+      headers: { 'X-User-ID': encodeURIComponent(`USER_${username}`) },
     });
     if (!response.ok) return null;
     return await response.json();
@@ -119,7 +117,7 @@ export const fetchUserStatus = async (username: string): Promise<UserStatusRespo
   }
 };
 
-// ③ 전광판 & 인기 종목용 기업 목록 (change_amount, change_rate 포함)
+// ③ 전광판 & 인기 종목용 기업 목록
 export const fetchCompanies = async (): Promise<CompanyData[]> => {
   try {
     const response = await fetch(`${BASE_URL}/api/companies`);
@@ -143,7 +141,7 @@ export const fetchChartData = async (ticker: string): Promise<ChartData[]> => {
   }
 };
 
-// ⑤ 전체 뉴스 가져오기 (NewsContent.tsx 연동용)
+// ⑤ 전체 뉴스 가져오기
 export const fetchNews = async (): Promise<News[]> => {
   try {
     const response = await fetch(`${BASE_URL}/api/news`);
@@ -246,11 +244,11 @@ export const postCommunityMessage = async (author: string, content: string, tick
   }
 };
 
-// ⑬ 🔥 [추가] 유저 맞춤형 AI 솔루션 데이터 호출
+// ⑬ 🔥 [추가] 유저 맞춤형 AI 솔루션 데이터 호출 (🔥 한글 헤더 인코딩 적용)
 export const fetchUserSolution = async (username: string): Promise<SolutionItem[] | null> => {
   try {
     const response = await fetch(`${BASE_URL}/api/user/solution`, {
-      headers: { 'X-User-ID': `USER_${username}` },
+      headers: { 'X-User-ID': encodeURIComponent(`USER_${username}`) },
     });
     if (!response.ok) return null;
     return await response.json();

@@ -14,13 +14,14 @@ import ChatbotContent from './components/ChatbotContent';
 import SettingsContent from './components/SettingsContent';
 import BottomNav from './components/BottomNav';
 import { StockData, PortfolioItem, TransactionItem, NotificationItem, WatchlistItem } from './types';
-import { initialWatchlist } from './data/mockData';
 import { fetchCompanies } from './services/api';
 import { fetchCompanies as fetchBackendCompanies } from './api';
 import TermsAgreement from './components/onboarding/TermsAgreement';
 import AccountOpening from './components/onboarding/AccountOpening';
 import AccountGuide from './components/onboarding/AccountGuide';
 import AppTour from './components/onboarding/AppTour';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const Layout = ({ children, hideHeader = false, notifications, onMarkAsRead, userName, userLevel, tourCompleted, handleCompleteTour, onboardingCompleted }: { 
   children?: React.ReactNode, 
@@ -82,7 +83,6 @@ const Layout = ({ children, hideHeader = false, notifications, onMarkAsRead, use
 const App: React.FC = () => {
     const navigate = useNavigate();
     
-    // --- Global State for Trading Simulation ---
     const [cash, setCash] = useState<number>(5000000); 
     const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]); 
     const [transactions, setTransactions] = useState<TransactionItem[]>([]); 
@@ -94,10 +94,9 @@ const App: React.FC = () => {
     const [onboardingCompleted, setOnboardingCompleted] = useState(false);
     const [onboardingStep, setOnboardingStep] = useState<'terms' | 'account' | 'guide'>('terms');
 
-    // 🔥 1. 온보딩 완료 시 백엔드 DB에 500만원 계좌 즉시 개설
     const handleCompleteOnboarding = async () => {
       try {
-        await fetch('http://localhost:8000/api/user/init', {
+        await fetch(`${API_BASE_URL}/api/user/init`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: userName })
@@ -122,23 +121,133 @@ const App: React.FC = () => {
     const [userLevel, setUserLevel] = useState('Lv.1');
     const [tourCompleted, setTourCompleted] = useState(false);
 
-    // 🔥 2. 5초마다 백엔드에서 실제 내 잔고를 훔쳐와서 화면에 동기화
     useEffect(() => {
       if (!onboardingCompleted) return;
-      const syncAssets = async () => {
+
+      const syncAllData = async () => {
         try {
-          const res = await fetch('http://localhost:8000/api/user/status', {
-            headers: { 'x-user-id': `USER_${userName}` }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setCash(data.balance); // 백엔드 잔고로 업데이트
+          // 1. 주식 시장 정보 가져오기
+          let currentStocks: StockData[] = [];
+          try {
+            const backendData = await fetchBackendCompanies();
+            if (backendData && backendData.length > 0) {
+              currentStocks = backendData.map(c => {
+                const priceStr = typeof (c as any).current_price === 'number' ? (c as any).current_price.toLocaleString() + '원' : '0원';
+                const changeRate = typeof (c as any).change_rate === 'number' ? (c as any).change_rate : 0;
+                const changeStr = (changeRate >= 0 ? '+' : '') + changeRate.toFixed(2) + '%';
+                return {
+                  ...c, 
+                  name: c.name,
+                  symbol: c.ticker,
+                  price: priceStr,
+                  change: changeStr,
+                  isUp: changeRate >= 0,
+                } as StockData;
+              });
+            }
+          } catch (e) {}
+
+          if (currentStocks.length === 0) {
+            try {
+              currentStocks = await fetchCompanies();
+            } catch (e) {}
           }
-        } catch(e) { }
+
+          if (currentStocks.length > 0) {
+            setStocks(currentStocks);
+            setWatchlist(prev => prev.map(item => {
+              const match = currentStocks.find(s => s.symbol === item.symbol || s.name === item.name);
+              return match ? { ...item, price: match.price, change: match.change, isUp: match.isUp } : item;
+            }));
+          }
+
+          const encodedUserId = encodeURIComponent(`USER_${userName}`);
+
+          // 2. 내 계좌 정보 가져오기
+          const resStatus = await fetch(`${API_BASE_URL}/api/user/status`, {
+            headers: { 'x-user-id': encodedUserId }
+          });
+          
+          if (resStatus.ok) {
+            const userData = await resStatus.json();
+            setCash(userData.balance); 
+
+            if (currentStocks.length > 0 && userData.portfolio) {
+              const newPortfolio: PortfolioItem[] = [];
+              Object.entries(userData.portfolio).forEach(([ticker, qty]) => {
+                const stockInfo = currentStocks.find(s => s.symbol === ticker || s.name === ticker);
+                if (stockInfo && Number(qty) > 0) {
+                  newPortfolio.push({
+                    id: stockInfo.id || Date.now() + Math.random(),
+                    name: stockInfo.name,
+                    symbol: stockInfo.symbol,
+                    badge: '실전',
+                    shares: `${qty}주`,
+                    sharesCount: Number(qty),
+                    price: stockInfo.price,
+                    change: stockInfo.change,
+                    isUp: stockInfo.isUp,
+                    color: stockInfo.color || 'bg-[#3082F5]',
+                    logoText: stockInfo.logoText || stockInfo.name.charAt(0)
+                  });
+                }
+              });
+              setPortfolio(newPortfolio);
+            }
+          }
+
+          // 🔥 3. 내 거래 내역(History) 완벽하게 가져오기
+          const resHistory = await fetch(`${API_BASE_URL}/api/user/history`, {
+            headers: { 'x-user-id': encodedUserId }
+          });
+          
+          if (resHistory.ok) {
+            const historyData = await resHistory.json();
+            // 백엔드 응답이 배열이든 딕셔너리든 에러 안 나도록 방어
+            const historyList = Array.isArray(historyData) ? historyData : (historyData.history || historyData.trades || []);
+            
+            if (historyList.length > 0) {
+              const formattedTransactions: TransactionItem[] = historyList.map((h: any, idx: number) => {
+                const dateObj = new Date(h.timestamp);
+                const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const dd = String(dateObj.getDate()).padStart(2, '0');
+                const hh = String(dateObj.getHours()).padStart(2, '0');
+                const mins = String(dateObj.getMinutes()).padStart(2, '0');
+                
+                const stockInfo = currentStocks.find(s => s.symbol === h.ticker || s.name === h.ticker);
+                const stockName = stockInfo ? stockInfo.name : h.ticker;
+                
+                const priceNum = h.price || 0;
+                const qtyNum = h.quantity || h.qty || 0;
+                const totalAmount = priceNum * qtyNum;
+
+                // 백엔드 DBTrade 구조 반영 (buyer_id가 나면 매수)
+                const isBuy = h.buyer_id === `USER_${userName}` || h.side === 'BUY';
+
+                return {
+                  id: h.id || idx,
+                  name: stockName,
+                  date: `${mm}.${dd}`,
+                  time: `${hh}:${mins}`,
+                  type: isBuy ? 'buy' : 'sell',
+                  amount: `${totalAmount.toLocaleString()}원`,
+                  pricePerShare: `${priceNum.toLocaleString()}원`,
+                  qty: `${qtyNum}주`,
+                  logoText: stockInfo?.logoText || stockName.charAt(0),
+                  logoBg: stockInfo?.color || 'bg-gray-400'
+                };
+              });
+              
+              setTransactions(formattedTransactions.reverse());
+            }
+          }
+        } catch (error) {
+          console.error("데이터 동기화 실패:", error);
+        }
       };
-      
-      syncAssets();
-      const interval = setInterval(syncAssets, 5000);
+
+      syncAllData();
+      const interval = setInterval(syncAllData, 3000); 
       return () => clearInterval(interval);
     }, [onboardingCompleted, userName]);
 
@@ -179,60 +288,6 @@ const App: React.FC = () => {
     const handleCompleteTour = () => {
       window.dispatchEvent(new Event('update-user-level'));
     };
-
-    // 실시간 주가 동기화 로직
-    React.useEffect(() => {
-      const loadStocks = async () => {
-        try {
-          const backendData = await fetchBackendCompanies();
-          if (backendData && backendData.length > 0) {
-            const translated: StockData[] = backendData.map(c => {
-              const priceStr = typeof (c as any).current_price === 'number' ? (c as any).current_price.toLocaleString() + '원' : '0원';
-              const changeRate = typeof (c as any).change_rate === 'number' ? (c as any).change_rate : 0;
-              const changeStr = (changeRate >= 0 ? '+' : '') + changeRate.toFixed(2) + '%';
-              return {
-                ...c, 
-                name: c.name,
-                symbol: c.ticker,
-                price: priceStr,
-                change: changeStr,
-                isUp: changeRate >= 0,
-              } as StockData;
-            });
-            setStocks(translated);
-            syncPortfolioAndWatchlist(translated);
-            return;
-          }
-        } catch (e) {
-          // 백엔드 연결 실패 시 패스
-        }
-
-        try {
-          const data = await fetchCompanies();
-          setStocks(data);
-          syncPortfolioAndWatchlist(data);
-        } catch (error) {
-          console.error("Failed to poll stocks:", error);
-        }
-      };
-
-      const syncPortfolioAndWatchlist = (data: StockData[]) => {
-        if (data.length > 0) {
-          setPortfolio(prev => prev.map(item => {
-            const match = data.find(s => s.symbol === item.symbol || s.name === item.name);
-            return match ? { ...item, price: match.price, change: match.change, isUp: match.isUp } : item;
-          }));
-          setWatchlist(prev => prev.map(item => {
-            const match = data.find(s => s.symbol === item.symbol || s.name === item.name);
-            return match ? { ...item, price: match.price, change: match.change, isUp: match.isUp } : item;
-          }));
-        }
-      };
-
-      loadStocks();
-      const interval = setInterval(loadStocks, 5000);
-      return () => clearInterval(interval);
-    }, []);
   
     const handleToggleWatchlist = (stock: StockData) => {
       const exists = watchlist.find(item => item.name === stock.name);
@@ -269,7 +324,7 @@ const App: React.FC = () => {
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     };
   
-    // 🔥 3. 매수 시 백엔드 엔진으로 주문서를 발송하고, 성공 시에만 돈 깎기
+    // 🔥 [수정] 400 Bad Request 해결을 위해 agent_id와 order_type을 필수 전송
     const handleBuy = async (stock: StockData, price: number, qty: number) => {
       const totalCost = price * qty;
       if (cash < totalCost) {
@@ -277,83 +332,55 @@ const App: React.FC = () => {
         return;
       }
 
-      // 프론트엔드에서 즉시 깎기 전에 백엔드에 매수 허락받기
       try {
-        const response = await fetch('http://localhost:8000/api/trade/order', {
+        const response = await fetch(`${API_BASE_URL}/api/trade/order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-id': `USER_${userName}`
+            'x-user-id': encodeURIComponent(`USER_${userName}`)
           },
-          body: JSON.stringify({
-            ticker: stock.symbol || stock.name,
-            side: 'BUY',
-            price: price,
-            quantity: qty
+          body: JSON.stringify({ 
+            agent_id: `USER_${userName}`, // 추가됨
+            ticker: stock.symbol || stock.name, 
+            side: 'BUY', 
+            order_type: 'LIMIT', // 추가됨
+            price: price, 
+            quantity: qty 
           })
         });
         const result = await response.json();
         
         if (!response.ok || result.status === 'FAIL') {
           alert(`매수 실패: ${result.msg || '서버 오류'}`);
-          return; // 백엔드에서 튕기면 프론트엔드 돈도 안 깎임!
+          return;
         }
+
+        if (result.status === 'PENDING') {
+          alert('호가창에 매수 주문이 등록되었습니다. 누군가 팔면 체결됩니다!');
+          return; 
+        }
+
+        const newTransaction: TransactionItem = {
+          id: Date.now(),
+          name: stock.name,
+          date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').slice(0, -1),
+          time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          type: 'buy',
+          amount: `${totalCost.toLocaleString()}원`,
+          pricePerShare: `${price.toLocaleString()}원`,
+          qty: `${qty}주`,
+          logoText: stock.logoText || stock.name.charAt(0),
+          logoBg: stock.color
+        };
+        setTransactions(prev => [newTransaction, ...prev]);
+        addNotification(`${stock.name} ${qty}주 매수가 체결되었습니다.`, 'buy');
       } catch (error) {
         console.error("백엔드 통신 실패", error);
         alert("서버 통신에 실패했습니다.");
-        return;
       }
-  
-      // 백엔드 승인 완료! 프론트엔드 UI 즉시 반영 (돈 깎기 & 포트폴리오 채우기)
-      setCash(prev => prev - totalCost);
-  
-      setPortfolio(prev => {
-        const existingIndex = prev.findIndex(item => item.name === stock.name);
-        if (existingIndex >= 0) {
-          const updatedItem = {
-            ...prev[existingIndex],
-            sharesCount: prev[existingIndex].sharesCount + qty,
-            shares: `${prev[existingIndex].sharesCount + qty}주`,
-            price: stock.price,
-            change: stock.change,
-            isUp: stock.isUp
-          };
-          const newPortfolio = prev.filter((_, idx) => idx !== existingIndex);
-          return [updatedItem, ...newPortfolio];
-        } else {
-          const newItem: PortfolioItem = {
-            id: Date.now(),
-            name: stock.name,
-            badge: '실전',
-            shares: `${qty}주`,
-            sharesCount: qty,
-            price: stock.price,
-            change: stock.change,
-            isUp: stock.isUp,
-            color: stock.color || 'bg-[#3082F5]',
-            logoText: stock.logoText || stock.name.charAt(0)
-          };
-          return [newItem, ...prev];
-        }
-      });
-  
-      const newTransaction: TransactionItem = {
-        id: Date.now(),
-        name: stock.name,
-        date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').slice(0, -1),
-        time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        type: 'buy',
-        amount: `${totalCost.toLocaleString()}원`,
-        pricePerShare: `${price.toLocaleString()}원`,
-        qty: `${qty}주`,
-        logoText: stock.logoText || stock.name.charAt(0),
-        logoBg: stock.color
-      };
-      setTransactions(prev => [newTransaction, ...prev]);
-      addNotification(`${stock.name} ${qty}주 매수가 체결되었습니다.`, 'buy');
     };
   
-    // 🔥 4. 매도 시 백엔드 엔진으로 주문서 발송하고, 성공 시에만 돈 주기
+    // 🔥 [수정] 400 Bad Request 해결을 위해 agent_id와 order_type을 필수 전송
     const handleSell = async (stock: StockData, price: number, qty: number) => {
       const totalEarn = price * qty;
       const owned = portfolio.find(item => item.name === stock.name);
@@ -362,19 +389,20 @@ const App: React.FC = () => {
         return;
       }
 
-      // 프론트엔드에서 즉시 반영 전에 백엔드에 매도 허락받기
       try {
-        const response = await fetch('http://localhost:8000/api/trade/order', {
+        const response = await fetch(`${API_BASE_URL}/api/trade/order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-id': `USER_${userName}`
+            'x-user-id': encodeURIComponent(`USER_${userName}`)
           },
-          body: JSON.stringify({
-            ticker: stock.symbol || stock.name,
-            side: 'SELL',
-            price: price,
-            quantity: qty
+          body: JSON.stringify({ 
+            agent_id: `USER_${userName}`, // 추가됨
+            ticker: stock.symbol || stock.name, 
+            side: 'SELL', 
+            order_type: 'LIMIT', // 추가됨
+            price: price, 
+            quantity: qty 
           })
         });
         const result = await response.json();
@@ -383,71 +411,56 @@ const App: React.FC = () => {
           alert(`매도 실패: ${result.msg || '서버 오류'}`);
           return;
         }
+
+        if (result.status === 'PENDING') {
+          alert('호가창에 매도 주문이 등록되었습니다. 누군가 사면 체결됩니다!');
+          return; 
+        }
+
+        const newTransaction: TransactionItem = {
+          id: Date.now(),
+          name: stock.name,
+          date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').slice(0, -1),
+          time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          type: 'sell',
+          amount: `${totalEarn.toLocaleString()}원`,
+          pricePerShare: `${price.toLocaleString()}원`,
+          qty: `${qty}주`,
+          logoText: stock.logoText || stock.name.charAt(0),
+          logoBg: stock.color
+        };
+        setTransactions(prev => [newTransaction, ...prev]);
+        addNotification(`${stock.name} ${qty}주 매도가 체결되었습니다.`, 'sell');
       } catch (error) {
         console.error("백엔드 통신 실패", error);
         alert("서버 통신에 실패했습니다.");
-        return;
       }
-  
-      // 백엔드 승인 완료! 프론트엔드 화면 즉각 반영 (돈 늘리기)
-      setCash(prev => prev + totalEarn);
-  
-      setPortfolio(prev => {
-        const existing = prev.find(item => item.name === stock.name)!;
-        const remaining = existing.sharesCount - qty;
-  
-        if (remaining <= 0) {
-          return prev.filter(item => item.name !== stock.name);
-        } else {
-          const updatedItem = {
-            ...existing,
-            sharesCount: remaining,
-            shares: `${remaining}주`
-          };
-          return prev.map(item => item.name === stock.name ? updatedItem : item);
-        }
-      });
-  
-      const newTransaction: TransactionItem = {
-        id: Date.now(),
-        name: stock.name,
-        date: new Date().toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').slice(0, -1),
-        time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        type: 'sell',
-        amount: `${totalEarn.toLocaleString()}원`,
-        pricePerShare: `${price.toLocaleString()}원`,
-        qty: `${qty}주`,
-        logoText: stock.logoText || stock.name.charAt(0),
-        logoBg: stock.color
-      };
-      setTransactions(prev => [newTransaction, ...prev]);
-      addNotification(`${stock.name} ${qty}주 매도가 체결되었습니다.`, 'sell');
     };
 
-  if (!onboardingCompleted) {
-    return (
-      <div className="flex flex-col h-screen max-w-md mx-auto bg-white relative overflow-hidden shadow-2xl">
-        {onboardingStep === 'terms' && (
-          <TermsAgreement 
-            onNext={() => setOnboardingStep('account')} 
-            onSkip={handleCompleteOnboarding}
-          />
-        )}
-        {onboardingStep === 'account' && (
-          <AccountOpening 
-            onBack={() => setOnboardingStep('terms')} 
-            onNext={handleCompleteOnboarding}
-            onShowGuide={() => setOnboardingStep('guide')}
-            onSkip={handleCompleteOnboarding}
-            onNicknameChange={setUserName}
-          />
-        )}
-        {onboardingStep === 'guide' && (
-          <AccountGuide onBack={() => setOnboardingStep('account')} />
-        )}
-      </div>
-    );
-  }
+    if (!onboardingCompleted) {
+      return (
+        <div className="flex flex-col h-screen max-w-md mx-auto bg-white relative overflow-hidden shadow-2xl">
+          {onboardingStep === 'terms' && (
+            <TermsAgreement 
+              onNext={() => setOnboardingStep('account')} 
+              onSkip={handleCompleteOnboarding}
+            />
+          )}
+          {onboardingStep === 'account' && (
+            <AccountOpening 
+              onBack={() => setOnboardingStep('terms')} 
+              onNext={handleCompleteOnboarding}
+              onShowGuide={() => setOnboardingStep('guide')}
+              onSkip={handleCompleteOnboarding}
+              onNicknameChange={setUserName}
+            />
+          )}
+          {onboardingStep === 'guide' && (
+            <AccountGuide onBack={() => setOnboardingStep('account')} />
+          )}
+        </div>
+      );
+    }
 
   return (
     <Routes>
@@ -469,25 +482,26 @@ const App: React.FC = () => {
          
          <Route path="/market" element={
             <MarketContent 
-              stocks={stocks}
-              watchlist={watchlist} 
-              onToggleWatchlist={handleToggleWatchlist} 
-              onBuy={handleBuy}
-              onSell={handleSell}
-              cash={cash}
-              homeTourCompleted={tourCompleted}
+               stocks={stocks}
+               watchlist={watchlist} 
+               onToggleWatchlist={handleToggleWatchlist} 
+               onBuy={handleBuy}
+               onSell={handleSell}
+               cash={cash}
+               homeTourCompleted={tourCompleted}
             />
          } />
          
          <Route path="/status" element={
             <StockStatusContent 
-              watchlist={watchlist} 
-              onToggleWatchlist={handleToggleWatchlist} 
-              cash={cash}
-              portfolio={portfolio}
-              transactions={transactions}
-              onBuy={handleBuy}
-              onSell={handleSell}
+               watchlist={watchlist} 
+               onToggleWatchlist={handleToggleWatchlist} 
+               cash={cash}
+               portfolio={portfolio}
+               transactions={transactions}
+               onBuy={handleBuy}
+               onSell={handleSell}
+               userName={userName}
             />
          } />
       </Route>

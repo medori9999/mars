@@ -7,13 +7,13 @@ import { StockData } from '../types';
  */
 
 export const tutorialStockData: StockData = {
-  id: 9999,
-  name: '삼성전자',
-  symbol: '005930',
-  price: '78,500원',
-  change: '+1.5%',
-  isUp: true,
-  badge: '전자',
-  color: 'bg-[#3082F5]',
-  logoText: 'S'
+id: 999,
+    name: "한화에어로스페이스x", // 재웅님 DB에 있는 종목명으로 바꾸셔도 됩니다
+    symbol: "IT008",    // 실제 티커로 변경
+    price: "23152원",
+    change: "0.23%",
+    isUp: true,
+    sector: "IT",
+    color: "bg-[#004FFE]",
+    logoText: "I"
 };

@@ -36,36 +36,49 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
   const [selectedStock, setSelectedStock] = useState<StockData | null>(null);
   const [transactionFilter, setTransactionFilter] = useState<'all' | 'buy' | 'sell'>('all');
 
-  // 🔥 [수정] 더미 데이터 전부 삭제하고 빈 배열로 시작
   const [solutionData, setSolutionData] = useState<SolutionItem[]>([]);
   const [isLoadingSolution, setIsLoadingSolution] = useState(false);
 
-  // 🔄 [핵심 연동] 솔루션 탭을 열 때 백엔드에서 찐 데이터를 가져옵니다.
+  const getMentorProfile = (typeStr: string) => {
+    const t = typeStr.toLowerCase();
+    if (t.includes('공격') || t.includes('aggressive')) return { name: '공격적 여우', img: '/Aggressive_Fox.png' };
+    if (t.includes('안정') || t.includes('stable')) return { name: '안정형 여우', img: '/Stable_Fox.png' };
+    if (t.includes('비관') || t.includes('pessimistic') || t.includes('contrarian')) return { name: '비관적 여우', img: '/Pessimistic_Fox.png' };
+    if (t.includes('부엉') || t.includes('owl') || t.includes('mentor')) return { name: '멘토 부엉이', img: '/Mentor_Owl.png' };
+    return { name: typeStr, img: '/Stable_Fox.png' };
+  };
+
+  const defaultMentors: SolutionItem[] = [
+    { id: 0, type: '멘토 부엉이', text: '아직 분석할 거래 내역이 부족합니다. 첫 주식을 매수하시면 저와 3명의 여우들이 맞춤형 피드백을 제공해 드립니다!', imageUrl: '/Mentor_Owl.png' },
+    { id: 1, type: '공격적 여우', text: '아직 거래가 없으시네요! 지금이 기회일지도 모릅니다. 과감하게 관심 종목을 매수해 보세요!', imageUrl: '/Aggressive_Fox.png' },
+    { id: 2, type: '안정형 여우', text: '서두르지 마세요. 처음엔 우량주 위주로 소액 분산 투자를 해보시는 것을 추천합니다.', imageUrl: '/Stable_Fox.png' },
+    { id: 3, type: '비관적 여우', text: '섣부른 투자는 금물입니다. 지금 시장이 좋아 보여도 언제 폭락할지 모릅니다. 신중하게 관망하세요.', imageUrl: '/Pessimistic_Fox.png' }
+  ];
+
   useEffect(() => {
     if (activeTab === 'solution') {
       const loadRealLLMFeedback = async () => {
         setIsLoadingSolution(true);
         try {
-          // 백엔드로 보낼 때 "USER_" 떼고 순수 이름만 전송
           const safeUserName = userName.replace(/^USER_/, '');
           const apiData = await fetchUserSolution(safeUserName);
           
           if (apiData && Array.isArray(apiData) && apiData.length > 0) {
-            // ✅ 백엔드에서 받은 데이터로 화면 덮어쓰기
-            setSolutionData(apiData.map((item: any, index: number) => ({
-              id: index,
-              type: item.type || 'AI 멘토',
-              text: item.text || item.advice || '분석 내용을 불러올 수 없습니다.',
-              imageUrl: item.imageUrl || '/Stable_Fox.png' // 백엔드 이미지가 없으면 기본값
-            })));
-          } else if (apiData && (apiData as any).error) {
-            setSolutionData([{ id: 0, type: '분석 불가', text: (apiData as any).error, imageUrl: '/Pessimistic_Fox.png' }]);
+            setSolutionData(apiData.map((item: any, index: number) => {
+              const profile = getMentorProfile(item.type || '멘토');
+              return {
+                id: index,
+                type: profile.name,
+                text: item.text || item.advice || '분석 내용을 불러올 수 없습니다.',
+                imageUrl: item.imageUrl || profile.img
+              };
+            }));
           } else {
-            setSolutionData([{ id: 0, type: '데이터 부족', text: '매매 내역이 부족하여 아직 분석할 수 없습니다. 거래를 더 진행해주세요.', imageUrl: '/Stable_Fox.png' }]);
+            setSolutionData(defaultMentors);
           }
         } catch (error) {
           console.error("LLM 데이터 로드 실패", error);
-          setSolutionData([{ id: 0, type: '통신 에러', text: '서버와 연결하여 멘토링을 가져오는 데 실패했습니다.', imageUrl: '/Pessimistic_Fox.png' }]);
+          setSolutionData(defaultMentors);
         } finally {
           setIsLoadingSolution(false); 
         }
@@ -74,7 +87,6 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
     }
   }, [activeTab, userName]);
 
-  // 총 보유자산 계산
   const stockValue = portfolio.reduce((acc, item) => {
     const priceNum = typeof item.price === 'number' ? item.price : parseInt(String(item.price).replace(/[^0-9]/g, '')) || 0;
     return acc + (priceNum * item.sharesCount);
@@ -89,17 +101,17 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
   const formatChange = (changeStr: string | number) => {
     const str = String(changeStr);
     const num = parseFloat(str.replace(/[^0-9.-]/g, '')) || 0;
-    const isNegative = str.includes('-') || num < 0;
+    const isUp = num >= 0;
     const displayNum = Math.abs(num).toFixed(2);
     
     return {
-      text: `${isNegative ? '-' : '+'}${displayNum}%`,
-      colorClass: isNegative ? 'text-[#1E88E5]' : 'text-[#E53935]',
-      arrow: isNegative ? '▼' : '▲'
+      text: `${isUp ? '+' : '-'}${displayNum}%`,
+      colorClass: isUp ? 'text-[#E53935]' : 'text-[#1E88E5]', 
+      arrow: isUp ? '▲' : '▼'
     };
   };
 
-  // 🔥 [추가] 내 매수 단가 대비 수익률 계산 함수
+  // 내 진짜 평균 매수 단가 계산
   const calculateItemReturn = (item: PortfolioItem) => {
     const buyTransactions = transactions.filter(t => t.name === item.name && t.type === 'buy');
     
@@ -110,7 +122,7 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
       buyTransactions.forEach(t => {
           const qty = parseInt(String(t.qty).replace(/[^0-9]/g, '')) || 0;
           const price = parseInt(String(t.pricePerShare).replace(/[^0-9]/g, '')) || 0;
-          totalCost += qty * price;
+          totalCost += (qty * price);
           totalQty += qty;
       });
       avgPrice = totalQty > 0 ? Math.round(totalCost / totalQty) : 0;
@@ -118,7 +130,10 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
 
     const currentPrice = typeof item.price === 'number' ? item.price : parseInt(String(item.price).replace(/[^0-9]/g, '')) || 0;
     
-    if (avgPrice === 0 || currentPrice === 0) return null;
+    // 거래내역이 없으면 일단 0원, 0%로 기본값 반환 (시장가 등락률로 빠지지 않음)
+    if (avgPrice === 0 || currentPrice === 0) {
+      return { avgPrice: 0, returnAmt: 0, returnPct: 0, isUp: true };
+    }
 
     const returnAmt = (currentPrice - avgPrice) * item.sharesCount;
     const returnPct = ((currentPrice - avgPrice) / avgPrice) * 100;
@@ -138,6 +153,7 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
         onBuy={onBuy}
         onSell={onSell}
         cash={cash}
+        userName={userName}
       />
     );
   }
@@ -207,7 +223,6 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
                       </div>
                       <div className="flex flex-col">
                         <h3 className="text-lg font-black text-gray-800 leading-none mb-1">{item.name}</h3>
-                        {/* 🔥 [추가] 얼마에 샀는지(매수 단가) 명확하게 표시 */}
                         <span className="text-[11px] font-bold text-gray-400">단가: {item.pricePerShare} · {item.qty}</span>
                       </div>
                     </div>
@@ -220,7 +235,7 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
                 </div>
               )) : (
                 <div className="p-10 text-center text-gray-400 font-bold text-sm">
-                  거래 내역이 없습니다.
+                  거래 내역이 없습니다. (App.tsx 연동 대기중)
                 </div>
               )}
             </div>
@@ -252,6 +267,7 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
                  src={solution.imageUrl} 
                  alt={solution.type} 
                  className="w-full h-full object-contain"
+                 onError={(e) => { (e.target as HTMLImageElement).src = '/Stable_Fox.png' }}
                />
             </div>
 
@@ -301,64 +317,56 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
         </div>
       </div>
 
-      <div className="mb-8 px-5">
-        <div className="flex items-center space-x-1 mb-4 cursor-pointer group">
+      <div className="mb-6 px-5">
+        <div className="flex items-center space-x-1 mb-3 cursor-pointer group">
           <h2 className="text-lg font-black text-gray-800">보유자산 포트폴리오</h2>
           <ChevronRight size={18} className="text-gray-300 group-hover:translate-x-0.5 transition-transform" />
         </div>
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           {portfolio.length > 0 ? portfolio.map((item) => {
-            const changeInfo = formatChange(item.change);
-            // 🔥 [추가] 내 매수 단가 대비 수익률 계산 연동!
+            // 🔥 이제 시장가 등락률(changeInfo)은 포트폴리오에서 완전히 지웠습니다.
             const myReturn = calculateItemReturn(item);
 
             return (
               <div 
                 key={item.id}
                 onClick={() => setSelectedStock(item as any)}
-                className="bg-white rounded-[1.5rem] p-4 flex flex-col shadow-sm border border-gray-50/50 cursor-pointer active:scale-[0.98] transition-all"
+                className="bg-white rounded-[1.5rem] p-3.5 flex flex-col shadow-sm border border-gray-50/50 cursor-pointer active:scale-[0.98] transition-all hover:border-[#004FFE]/30"
               >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-12 h-12 rounded-2xl ${item.color} flex items-center justify-center text-white font-black text-xl shadow-sm`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-11 h-11 rounded-2xl ${item.color} flex items-center justify-center text-white font-black text-lg shadow-sm`}>
                       {item.logoText}
                     </div>
                     <div className="flex flex-col space-y-0.5">
                       <div className="flex items-center space-x-2">
                         <h3 className="font-bold text-gray-800 text-sm">{item.name}</h3>
                       </div>
-                      <span className="text-xs font-bold text-gray-300">{item.shares}</span>
+                      <span className="text-[11px] font-bold text-gray-400">{item.shares}</span>
                     </div>
                   </div>
+                  
+                  {/* 🔥 [핵심] 오직 '내가 산 금액 대비 수익률'만 보여줍니다! */}
                   <div className="text-right flex flex-col items-end">
+                    <span className="text-[10px] font-bold text-gray-400 mb-0.5">현재가</span>
                     <span className="text-sm font-black text-gray-800">
                       {typeof item.price === 'number' ? item.price.toLocaleString() + '원' : item.price}
                     </span>
-                    <div className={`flex items-center text-[11px] font-black ${changeInfo.colorClass}`}>
-                      시장가 {changeInfo.text} {changeInfo.arrow}
+                    <div className={`flex items-center text-[11px] font-black mt-0.5 ${
+                        myReturn.avgPrice === 0 ? 'text-gray-400' : (myReturn.isUp ? 'text-[#E53935]' : 'text-[#1E88E5]')
+                      }`}
+                    >
+                      {myReturn.avgPrice === 0 
+                        ? "0.00% (▲0원)" // 거래내역 연동 전 임시 표기
+                        : `${myReturn.isUp ? '+' : ''}${myReturn.returnPct.toFixed(2)}% (${myReturn.isUp ? '▲' : '▼'}${Math.abs(myReturn.returnAmt).toLocaleString()}원)`
+                      }
                     </div>
                   </div>
                 </div>
-                
-                {/* 🔥 [추가] 내 수익률 표시 영역 (내가 산 가격 기준!) */}
-                {myReturn && (
-                  <div className="bg-gray-50/50 rounded-xl p-3 flex justify-between items-center mt-1 border border-gray-100">
-                     <div className="flex flex-col">
-                       <span className="text-[10px] font-bold text-gray-400">평균 매수단가</span>
-                       <span className="text-xs font-black text-gray-700">{myReturn.avgPrice.toLocaleString()}원</span>
-                     </div>
-                     <div className="flex flex-col text-right">
-                       <span className="text-[10px] font-bold text-gray-400">내 평가손익</span>
-                       <span className={`text-xs font-black ${myReturn.isUp ? 'text-[#E53935]' : 'text-[#1E88E5]'}`}>
-                         {myReturn.isUp ? '+' : ''}{myReturn.returnAmt.toLocaleString()}원 ({myReturn.isUp ? '+' : ''}{myReturn.returnPct.toFixed(2)}%)
-                       </span>
-                     </div>
-                  </div>
-                )}
               </div>
             );
           }) : (
-            <div className="text-center py-8 text-gray-400 text-xs font-bold bg-white rounded-[1.5rem] border border-gray-50/50">
+            <div className="text-center py-6 text-gray-400 text-xs font-bold bg-white rounded-[1.5rem] border border-gray-50/50">
               보유한 주식이 없습니다.
             </div>
           )}
@@ -366,28 +374,28 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
       </div>
 
       <div className="mb-4 px-5">
-        <div className="flex items-center space-x-1 mb-4">
+        <div className="flex items-center space-x-1 mb-3">
           <h2 className="text-lg font-black text-gray-800">관심 종목</h2>
           <span className="text-[#E53935]">❤️</span>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           {watchlist.length > 0 ? watchlist.map((item) => {
             const changeInfo = formatChange(item.change);
             return (
               <div 
                 key={item.id}
                 onClick={() => setSelectedStock(item as any)}
-                className="bg-white rounded-[1.5rem] p-4 flex items-center justify-between shadow-sm border border-gray-50/50 cursor-pointer active:scale-[0.98] transition-all"
+                className="bg-white rounded-[1.5rem] p-3.5 flex items-center justify-between shadow-sm border border-gray-50/50 cursor-pointer active:scale-[0.98] transition-all hover:border-[#004FFE]/30"
               >
-                <div className="flex items-center space-x-4">
-                  <div className={`w-12 h-12 rounded-2xl ${item.color} flex items-center justify-center text-white font-black text-xl shadow-sm`}>
+                <div className="flex items-center space-x-3">
+                  <div className={`w-11 h-11 rounded-2xl ${item.color} flex items-center justify-center text-white font-black text-lg shadow-sm`}>
                     {item.logoText}
                   </div>
                   <div className="flex flex-col space-y-0.5">
                     <div className="flex items-center space-x-2">
                       <h3 className="font-bold text-gray-800 text-sm">{item.name}</h3>
                     </div>
-                    <span className="text-xs font-bold text-gray-300">{item.shares}</span>
+                    <span className="text-[11px] font-bold text-gray-400">{item.shares}</span>
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -404,7 +412,7 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
               </div>
             );
           }) : (
-             <div className="text-center py-8 text-gray-400 text-xs font-bold bg-white rounded-[1.5rem] border border-gray-50/50">
+             <div className="text-center py-6 text-gray-400 text-xs font-bold bg-white rounded-[1.5rem] border border-gray-50/50">
                아직 관심 종목이 없습니다.
              </div>
           )}
