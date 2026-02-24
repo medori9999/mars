@@ -1,10 +1,11 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { CalendarDays, Bell, X } from 'lucide-react';
 import { NotificationItem } from '../types';
 import profileSquirrel from '../assets/profile_squirrel.png';
 
 import { USER_LEVEL } from '../constants/user';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 interface HeaderProps {
   showProfile: boolean;
@@ -19,6 +20,9 @@ const Header: React.FC<HeaderProps> = ({ showProfile, notifications, onMarkAsRea
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // 🔥 시뮬레이션 날짜 상태 추가 (기본값 세팅)
+  const [simDate, setSimDate] = useState<string>("02.03 (월)");
+
   const handleBellClick = () => {
     if (!isDropdownOpen && hasUnread) {
       onMarkAsRead();
@@ -26,7 +30,7 @@ const Header: React.FC<HeaderProps> = ({ showProfile, notifications, onMarkAsRea
     setIsDropdownOpen(!isDropdownOpen);
   };
 
-  // Close dropdown when clicking outside
+  // 외부 클릭 시 알림창 닫기
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -37,6 +41,43 @@ const Header: React.FC<HeaderProps> = ({ showProfile, notifications, onMarkAsRea
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
+  }, []);
+
+  // 🚀 [추가된 핵심 로직] 백엔드에서 시뮬레이션 시간을 쓱 가져옵니다 (다른 파일 수정 불필요)
+  useEffect(() => {
+    const fetchSimulationDate = async () => {
+      try {
+        // 1. 시장에 있는 기업 목록을 가져옵니다.
+        const compsRes = await fetch(`${API_BASE_URL}/api/companies`);
+        if (!compsRes.ok) return;
+        const comps = await compsRes.json();
+        
+        if (comps && comps.length > 0) {
+          // 2. 그 중 한 기업의 가장 최근 거래 1건을 조회해서 '현재 시뮬레이션 시간'을 알아냅니다.
+          const chartRes = await fetch(`${API_BASE_URL}/api/chart/${comps[0].ticker}?limit=1`);
+          if (!chartRes.ok) return;
+          const chart = await chartRes.json();
+          
+          if (chart && chart.length > 0) {
+            const dateObj = new Date(chart[0].time);
+            const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const dd = String(dateObj.getDate()).padStart(2, '0');
+            const days = ['일', '월', '화', '수', '목', '금', '토'];
+            const dayStr = days[dateObj.getDay()];
+            
+            // 날짜 업데이트! (예: 02.04 (화))
+            setSimDate(`${mm}.${dd} (${dayStr})`);
+          }
+        }
+      } catch (error) {
+        console.error("시뮬레이션 날짜 동기화 실패:", error);
+      }
+    };
+
+    fetchSimulationDate();
+    // 5초마다 날짜를 체크해서 시뮬레이션 하루가 지나가면 즉시 변경되게 합니다.
+    const interval = setInterval(fetchSimulationDate, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -107,10 +148,10 @@ const Header: React.FC<HeaderProps> = ({ showProfile, notifications, onMarkAsRea
           </div>
         )}
 
-        {/* Calendar */}
+        {/* Calendar (🔥 데이터 연동 완료) */}
         <div className="bg-white/80 backdrop-blur-sm border border-[#CFE3FA] px-3 py-1.5 rounded-full flex items-center space-x-2 shadow-sm h-[32px]">
           <CalendarDays size={16} className="text-[#004FFE]" />
-          <span className="text-xs font-semibold text-gray-700">02.03 (월)</span>
+          <span className="text-xs font-semibold text-gray-700">{simDate}</span>
         </div>
       </div>
     </div>

@@ -126,7 +126,6 @@ const App: React.FC = () => {
 
       const syncAllData = async () => {
         try {
-          // 1. 주식 시장 정보 가져오기
           let currentStocks: StockData[] = [];
           try {
             const backendData = await fetchBackendCompanies();
@@ -163,7 +162,7 @@ const App: React.FC = () => {
 
           const encodedUserId = encodeURIComponent(`USER_${userName}`);
 
-          // 2. 내 계좌 정보 가져오기
+          // 내 계좌 정보 가져오기
           const resStatus = await fetch(`${API_BASE_URL}/api/user/status`, {
             headers: { 'x-user-id': encodedUserId }
           });
@@ -193,52 +192,55 @@ const App: React.FC = () => {
                 }
               });
               setPortfolio(newPortfolio);
+            } else {
+               setPortfolio([]);
             }
           }
 
-          // 🔥 3. 내 거래 내역(History) 완벽하게 가져오기
+          // 내 거래 내역 백엔드 동기화 (남의 거래 제외)
           const resHistory = await fetch(`${API_BASE_URL}/api/user/history`, {
             headers: { 'x-user-id': encodedUserId }
           });
           
           if (resHistory.ok) {
             const historyData = await resHistory.json();
-            // 백엔드 응답이 배열이든 딕셔너리든 에러 안 나도록 방어
             const historyList = Array.isArray(historyData) ? historyData : (historyData.history || historyData.trades || []);
             
             if (historyList.length > 0) {
-              const formattedTransactions: TransactionItem[] = historyList.map((h: any, idx: number) => {
-                const dateObj = new Date(h.timestamp);
-                const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-                const dd = String(dateObj.getDate()).padStart(2, '0');
-                const hh = String(dateObj.getHours()).padStart(2, '0');
-                const mins = String(dateObj.getMinutes()).padStart(2, '0');
-                
-                const stockInfo = currentStocks.find(s => s.symbol === h.ticker || s.name === h.ticker);
-                const stockName = stockInfo ? stockInfo.name : h.ticker;
-                
-                const priceNum = h.price || 0;
-                const qtyNum = h.quantity || h.qty || 0;
-                const totalAmount = priceNum * qtyNum;
+              const myHistory = historyList.filter((h: any) => h.buyer_id === `USER_${userName}` || h.seller_id === `USER_${userName}`);
 
-                // 백엔드 DBTrade 구조 반영 (buyer_id가 나면 매수)
-                const isBuy = h.buyer_id === `USER_${userName}` || h.side === 'BUY';
+              if (myHistory.length > 0) {
+                const formattedTransactions: TransactionItem[] = myHistory.map((h: any, idx: number) => {
+                  const dateObj = new Date(h.timestamp);
+                  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                  const dd = String(dateObj.getDate()).padStart(2, '0');
+                  const hh = String(dateObj.getHours()).padStart(2, '0');
+                  const mins = String(dateObj.getMinutes()).padStart(2, '0');
+                  
+                  const stockInfo = currentStocks.find(s => s.symbol === h.ticker || s.name === h.ticker);
+                  const stockName = stockInfo ? stockInfo.name : h.ticker;
+                  
+                  const priceNum = h.price || 0;
+                  const qtyNum = h.quantity || h.qty || 0;
+                  const totalAmount = priceNum * qtyNum;
+                  const isBuy = h.buyer_id === `USER_${userName}`;
 
-                return {
-                  id: h.id || idx,
-                  name: stockName,
-                  date: `${mm}.${dd}`,
-                  time: `${hh}:${mins}`,
-                  type: isBuy ? 'buy' : 'sell',
-                  amount: `${totalAmount.toLocaleString()}원`,
-                  pricePerShare: `${priceNum.toLocaleString()}원`,
-                  qty: `${qtyNum}주`,
-                  logoText: stockInfo?.logoText || stockName.charAt(0),
-                  logoBg: stockInfo?.color || 'bg-gray-400'
-                };
-              });
-              
-              setTransactions(formattedTransactions.reverse());
+                  return {
+                    id: h.id || idx,
+                    name: stockName,
+                    date: `${mm}.${dd}`,
+                    time: `${hh}:${mins}`,
+                    type: isBuy ? 'buy' : 'sell',
+                    amount: `${totalAmount.toLocaleString()}원`,
+                    pricePerShare: `${priceNum.toLocaleString()}원`,
+                    qty: `${qtyNum}주`,
+                    logoText: stockInfo?.logoText || stockName.charAt(0),
+                    logoBg: stockInfo?.color || 'bg-gray-400'
+                  };
+                });
+                
+                setTransactions(formattedTransactions.reverse());
+              }
             }
           }
         } catch (error) {
@@ -324,7 +326,6 @@ const App: React.FC = () => {
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     };
   
-    // 🔥 [수정] 400 Bad Request 해결을 위해 agent_id와 order_type을 필수 전송
     const handleBuy = async (stock: StockData, price: number, qty: number) => {
       const totalCost = price * qty;
       if (cash < totalCost) {
@@ -340,10 +341,10 @@ const App: React.FC = () => {
             'x-user-id': encodeURIComponent(`USER_${userName}`)
           },
           body: JSON.stringify({ 
-            agent_id: `USER_${userName}`, // 추가됨
+            agent_id: `USER_${userName}`, 
             ticker: stock.symbol || stock.name, 
             side: 'BUY', 
-            order_type: 'LIMIT', // 추가됨
+            order_type: 'LIMIT', 
             price: price, 
             quantity: qty 
           })
@@ -356,10 +357,11 @@ const App: React.FC = () => {
         }
 
         if (result.status === 'PENDING') {
-          alert('호가창에 매수 주문이 등록되었습니다. 누군가 팔면 체결됩니다!');
+          alert(`[주문 대기중]\n지정하신 가격(${price.toLocaleString()}원)에 팔려는 사람이 없어 대기열에 등록되었습니다!\n판매자가 나타나면 자동으로 체결됩니다.`);
           return; 
         }
 
+        // 🔥 [완벽 복구] 매수 즉시 화면(거래내역)에 영수증을 딱! 띄워주는 원래 코드 복구
         const newTransaction: TransactionItem = {
           id: Date.now(),
           name: stock.name,
@@ -372,7 +374,14 @@ const App: React.FC = () => {
           logoText: stock.logoText || stock.name.charAt(0),
           logoBg: stock.color
         };
-        setTransactions(prev => [newTransaction, ...prev]);
+        
+        // 내 거래내역에 즉시 추가!
+        setTransactions(prev => {
+          const isExist = prev.some(p => p.name === newTransaction.name && p.time === newTransaction.time && p.type === 'buy');
+          if (isExist) return prev;
+          return [newTransaction, ...prev];
+        });
+        
         addNotification(`${stock.name} ${qty}주 매수가 체결되었습니다.`, 'buy');
       } catch (error) {
         console.error("백엔드 통신 실패", error);
@@ -380,7 +389,6 @@ const App: React.FC = () => {
       }
     };
   
-    // 🔥 [수정] 400 Bad Request 해결을 위해 agent_id와 order_type을 필수 전송
     const handleSell = async (stock: StockData, price: number, qty: number) => {
       const totalEarn = price * qty;
       const owned = portfolio.find(item => item.name === stock.name);
@@ -397,10 +405,10 @@ const App: React.FC = () => {
             'x-user-id': encodeURIComponent(`USER_${userName}`)
           },
           body: JSON.stringify({ 
-            agent_id: `USER_${userName}`, // 추가됨
+            agent_id: `USER_${userName}`, 
             ticker: stock.symbol || stock.name, 
             side: 'SELL', 
-            order_type: 'LIMIT', // 추가됨
+            order_type: 'LIMIT', 
             price: price, 
             quantity: qty 
           })
@@ -413,10 +421,11 @@ const App: React.FC = () => {
         }
 
         if (result.status === 'PENDING') {
-          alert('호가창에 매도 주문이 등록되었습니다. 누군가 사면 체결됩니다!');
+          alert(`[주문 대기중]\n지정하신 가격(${price.toLocaleString()}원)에 사려는 사람이 없어 대기열에 등록되었습니다!\n구매자가 나타나면 자동으로 체결됩니다.`);
           return; 
         }
 
+        // 🔥 [완벽 복구] 매도 즉시 화면(거래내역)에 영수증을 딱! 띄워주는 원래 코드 복구
         const newTransaction: TransactionItem = {
           id: Date.now(),
           name: stock.name,
@@ -429,7 +438,14 @@ const App: React.FC = () => {
           logoText: stock.logoText || stock.name.charAt(0),
           logoBg: stock.color
         };
-        setTransactions(prev => [newTransaction, ...prev]);
+        
+        // 내 거래내역에 즉시 추가!
+        setTransactions(prev => {
+          const isExist = prev.some(p => p.name === newTransaction.name && p.time === newTransaction.time && p.type === 'sell');
+          if (isExist) return prev;
+          return [newTransaction, ...prev];
+        });
+        
         addNotification(`${stock.name} ${qty}주 매도가 체결되었습니다.`, 'sell');
       } catch (error) {
         console.error("백엔드 통신 실패", error);

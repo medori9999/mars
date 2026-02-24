@@ -130,7 +130,6 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
 
     const currentPrice = typeof item.price === 'number' ? item.price : parseInt(String(item.price).replace(/[^0-9]/g, '')) || 0;
     
-    // 거래내역이 없으면 일단 0원, 0%로 기본값 반환 (시장가 등락률로 빠지지 않음)
     if (avgPrice === 0 || currentPrice === 0) {
       return { avgPrice: 0, returnAmt: 0, returnPct: 0, isUp: true };
     }
@@ -223,12 +222,15 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
                       </div>
                       <div className="flex flex-col">
                         <h3 className="text-lg font-black text-gray-800 leading-none mb-1">{item.name}</h3>
-                        <span className="text-[11px] font-bold text-gray-400">단가: {item.pricePerShare} · {item.qty}</span>
+                        {/* 🔥 방어 코드 추가: 데이터가 살짝 늦어도 에러 없이 표시 */}
+                        <span className="text-[11px] font-bold text-gray-400">
+                          단가: {item.pricePerShare || '0원'} · {item.qty || '0주'}
+                        </span>
                       </div>
                     </div>
                     <div className="text-right flex items-center space-x-1">
                       <span className={`${item.type === 'buy' ? 'text-[#E53935]' : 'text-[#1E88E5]'} text-lg font-black tracking-tighter`}>
-                        {item.type === 'buy' ? '' : '+'} {item.amount}
+                        {item.type === 'buy' ? '' : '+'} {item.amount || '0원'}
                       </span>
                     </div>
                   </div>
@@ -324,7 +326,6 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
         </div>
         <div className="space-y-2.5">
           {portfolio.length > 0 ? portfolio.map((item) => {
-            // 🔥 이제 시장가 등락률(changeInfo)은 포트폴리오에서 완전히 지웠습니다.
             const myReturn = calculateItemReturn(item);
 
             return (
@@ -346,9 +347,11 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
                     </div>
                   </div>
                   
-                  {/* 🔥 [핵심] 오직 '내가 산 금액 대비 수익률'만 보여줍니다! */}
                   <div className="text-right flex flex-col items-end">
-                    <span className="text-[10px] font-bold text-gray-400 mb-0.5">현재가</span>
+                    {/* 🔥 이 부분 핵심 수정: '평단가'를 대놓고 보여줘서 유저가 얼마에 샀는지 바로 확인 가능하게 변경! */}
+                    <span className="text-[10px] font-bold text-gray-400 mb-0.5">
+                      {myReturn.avgPrice > 0 ? `매수단가 ${myReturn.avgPrice.toLocaleString()}원 · 현재가` : '현재가'}
+                    </span>
                     <span className="text-sm font-black text-gray-800">
                       {typeof item.price === 'number' ? item.price.toLocaleString() + '원' : item.price}
                     </span>
@@ -357,7 +360,7 @@ const StockStatusContent: React.FC<StockStatusContentProps> = ({
                       }`}
                     >
                       {myReturn.avgPrice === 0 
-                        ? "0.00% (▲0원)" // 거래내역 연동 전 임시 표기
+                        ? "0.00% (▲0원)" 
                         : `${myReturn.isUp ? '+' : ''}${myReturn.returnPct.toFixed(2)}% (${myReturn.isUp ? '▲' : '▼'}${Math.abs(myReturn.returnAmt).toLocaleString()}원)`
                       }
                     </div>

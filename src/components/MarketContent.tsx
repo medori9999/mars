@@ -32,74 +32,6 @@ const MarketContent: React.FC<MarketContentProps> = ({
   const [category, setCategory] = useState('전체');
   const [showAllRanking, setShowAllRanking] = useState(false);
 
-  // 🔥 [자산 연동] 매수(Buy) 시 백엔드로 주문 전송
-  const handleBackendBuy = async (stock: StockData, price: number, qty: number) => {
-    const username = localStorage.getItem('userName') || 'guest';
-    const userId = `USER_${username}`; // 백엔드 아이디 포맷
-
-    try {
-      const response = await fetch('http://localhost:8000/api/trade/order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': userId 
-        },
-        body: JSON.stringify({
-          ticker: stock.symbol || stock.name, 
-          side: 'BUY',
-          price: price,
-          quantity: qty
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok && result.status !== 'FAIL') {
-        // 백엔드 성공 시 프론트엔드 상태(cash) 업데이트 
-        onBuy(stock, price, qty);
-      } else {
-        alert(`매수 실패: ${result.msg || '잔액이 부족합니다.'}`);
-      }
-    } catch (error) {
-      console.error("거래 통신 오류:", error);
-      // 백엔드 연결 안 될 때 폴백
-      onBuy(stock, price, qty);
-    }
-  };
-
-  // 🔥 [자산 연동] 매도(Sell) 시 백엔드로 주문 전송
-  const handleBackendSell = async (stock: StockData, price: number, qty: number) => {
-    const username = localStorage.getItem('userName') || 'guest';
-    const userId = `USER_${username}`; 
-
-    try {
-      const response = await fetch('http://localhost:8000/api/trade/order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': userId
-        },
-        body: JSON.stringify({
-          ticker: stock.symbol || stock.name,
-          side: 'SELL',
-          price: price,
-          quantity: qty
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok && result.status !== 'FAIL') {
-        onSell(stock, price, qty);
-      } else {
-        alert(`매도 실패: ${result.msg || '보유 주식이 부족합니다.'}`);
-      }
-    } catch (error) {
-      console.error("거래 통신 오류:", error);
-      onSell(stock, price, qty);
-    }
-  };
-
   // 시장 투어
   useEffect(() => {
     const checkTour = () => {
@@ -124,7 +56,8 @@ const MarketContent: React.FC<MarketContentProps> = ({
       
       return {
         ...stock,
-        id: stock.id || Math.random(), 
+        // 🔥 [핵심 원인 해결] Math.random() 때문에 클릭할 때마다 주식이 섞이는 현상 완벽 차단!
+        id: stock.symbol || stock.name, 
         price: (stock as any).current_price !== undefined ? `${rawPrice.toLocaleString()}원` : (stock.price || '0원'),
         changeValue: rawChange,
         changeText: (stock as any).change_rate !== undefined ? `${rawChange > 0 ? '+' : ''}${rawChange.toFixed(2)}%` : (stock.change || '0%'),
@@ -184,9 +117,9 @@ const MarketContent: React.FC<MarketContentProps> = ({
               setSelectedStock(null);
               setDetailTab('차트');
             }}
-            // 🔥 [자산 연동] 기존 onBuy 대신 백엔드 통신 함수(handleBackendBuy) 전달
-            onBuy={handleBackendBuy}
-            onSell={handleBackendSell}
+            // 🔥 [충돌 원인 해결] localhost가 박혀있던 중복 함수 제거하고 정상적인 onBuy, onSell로 다이렉트 연결!
+            onBuy={onBuy}
+            onSell={onSell}
             cash={cash}
             externalTab={detailTab}
             onTabChange={setDetailTab}
